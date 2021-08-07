@@ -1,0 +1,132 @@
+---
+title: "Covid-19 Vaccines in Ontario"
+author: "Vinay"
+date: "*`r format(Sys.time(), '%d %B %Y')`*"
+runtime: shiny
+output:
+  html_document:
+    fig_width: 10
+    fig_caption: yes
+---
+<style>
+
+h1.title {
+ color: #E80b0b;
+ font-family: Calibri;
+ font-size: 70px;
+}
+h4.author {
+  color: #708090;
+  font-family: Calibri;
+}
+h4.date {
+  color: #708090;  
+  font-family: Calibri;
+  font-size: 15px
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = TRUE)
+```
+
+```{r data, include = FALSE}
+library(tidyverse)
+library(naniar)
+library(numberFormattR)
+library(ggrepel)
+library(formattable)
+library(plotly)
+
+vaccine_doses <- read_csv("https://data.ontario.ca/dataset/752ce2b7-c15a-4965-a3dc-397bf405e7cc/resource/8a89caa9-511c-4568-af89-7f2174b4378c/download/vaccine_doses.csv")
+
+#change column names
+colnames(vaccine_doses) <- c("date", "daily_doses", "atleast_1", "daily_full_vax",
+                             "At least 1 dose","Partially Vaccinated","doses_in_full", "Fully Vaccinated" )
+
+glimpse(vaccine_doses)
+
+daily_end <- vaccine_doses%>%
+  select(date, daily_doses)%>%
+  top_n(1, date) %>%
+  mutate(New_daily_dose = comma(daily_doses))
+
+#converting horizontal to vertical dataset(total doses and persons fully vaccinated)
+vaccine_tall <- vaccine_doses %>%
+  select(date, `Partially Vaccinated`, `Fully Vaccinated`) %>%
+  gather(key = daily_total, value = Doses, `Partially Vaccinated`: `Fully Vaccinated`)%>%
+  mutate(daily_total = as.factor(daily_total))
+
+data_end <- vaccine_tall%>%
+  group_by(daily_total)%>%
+  top_n(1, Doses) %>%
+  mutate(Doses = comma(Doses))
+
+#daily vaccinations
+daily_vax <- ggplot(vaccine_doses, aes(date, daily_doses)) + geom_col(color = "white", fill = "deepskyblue2") + theme_bw() + 
+    ggtitle("Daily Vaccine Doses Administered in Ontario") + scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+    labs( x = NULL, y = "Number of Doses") + geom_text_repel(aes(label = New_daily_dose),
+                                                             data = daily_end, color = "black", size = 5, hjust = "right", direction = "x")
+
+#total vaccines
+total_vax <- ggplot(vaccine_tall, aes(date, Doses, fill = daily_total)) + ggtitle("Vaccines administered in Ontario") +
+   labs(x = NULL, y = "No. of Doses") + theme_bw() + guides(fill = guide_legend(NULL)) +
+   geom_area(alpha = 0.8, position = "identity") + scale_fill_manual(values = alpha(c(" dodgerblue3","deepskyblue2"))) +
+   scale_y_continuous(labels = suffix_formatter_0) + scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+   geom_text_repel(aes(label = Doses), data = data_end, color = "black", size = 5) + 
+   theme(legend.position = "bottom")
+
+
+#Vaccination rate per phu 
+
+phu <- read_csv("https://data.ontario.ca/dataset/752ce2b7-c15a-4965-a3dc-397bf405e7cc/resource/2a362139-b782-43b1-b3cb-078a2ef19524/download/vaccines_by_age_phu.csv")
+
+hline <- 0.70
+
+phu_plot <-phu %>%
+            mutate(phu = as.factor(`PHU name`), `PHU ID` = as.factor(`PHU ID`)) %>%
+            filter(Agegroup == "Ontario_12plus", phu != "UNKNOWN") %>%
+            group_by(phu) %>%
+            summarize(Percent_fully_vaccinated, Date) %>%
+            arrange(desc(Percent_fully_vaccinated)) %>%
+            ggplot(aes(phu, Percent_fully_vaccinated)) + geom_bar(fill = "deepskyblue2",stat = "identity" ,position = position_dodge(width = 0.7)) +
+              theme_bw()+ theme(axis.text = element_text(angle = 45, hjust = 1)) + geom_hline(aes(yintercept = hline), linetype = "dashed", color = "red") +
+              labs(y = "Percent fully vaccinated", x = "Public Health Units in Ontario") + ggtitle("Ontario PHU Vaccinations") +
+              annotate("text", x = 18, y = 0.69, label = "70% Vaccination Target" ) 
+
+
+```
+
+All data was last updated on `r daily_end$date` at 10:30 am and reflects vaccinations from 8 pm the previous day.
+Raw data can be found at the [Ontario Data Catalogue](https://data.ontario.ca/dataset/covid-19-vaccine-data-in-ontario) 
+
+## Daily Vaccinations  
+
+```{r vaccine_doses, echo=FALSE, warning = FALSE, fig.width= 10, fig.align='center'}
+
+ggplotly(daily_vax)
+
+```
+
+**`r daily_end$New_daily_dose`** doses were administered in Ontario on **`r tail(vaccine_doses,2)[-2,1]`** 
+
+## Total Vaccinations 
+
+```{r vaccine_tall, echo = FALSE, warning  = FALSE,  fig.width = 11.5, fig.align='center'}
+
+ggplotly(total_vax)
+
+```
+
+**`r data_end[1,3]`** persons have been vaccinated at least once and **`r data_end[2,3]`** individuals are fully vaccinated. 
+
+## Vaccination per Public Health Unit
+
+[Roadmap to Reopening Ontario](https://www.ontario.ca/page/reopening-ontario) states Ontario is in Step 3 and is waiting on all public health units to achieve a minimum of 70% vaccination status of their populations to exit Covid-19 restrictions
+
+```{r phu, echo = FALSE, warning = FALSE, fig.height = 8, fig.width = 10, fig.align='right'}
+
+ggplotly(phu_plot)
+
+```
+
